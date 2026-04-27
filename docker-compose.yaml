@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  coletor-api:
+    build: .
+    container_name: gnews_ETL
+    volumes:
+      - .:/API-GNews
+    environment:
+      - API_GNews=${API_GNews}
+    # Caso queira que ele rode e feche após terminar, mantenha o padrão.
+    # Se quiser que ele reinicie se falhar:
+    restart: on-failure

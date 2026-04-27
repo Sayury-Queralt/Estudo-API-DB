@@ -5,12 +5,18 @@ import json
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import psycopg2
+import boto3
 
 load_dotenv()
 API_KEY = os.getenv('API_GNews')
+host_RDS = os.getenv('HOST')
+region = os.getenv('region')
+database = os.getenv('database')
+user = os.getenv('user')
+sslmode = os.getenv('sslmode')
 
-Tema = input('Buscar noticias com a palavra: ')
-LastHour = (datetime.now(timezone.utc) - timedelta(hours=15)).strftime('%Y-%m-%dT%H:%M:%SZ')
+Tema = "Lula"
+LastHour = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 url = f"https://gnews.io/api/v4/search?q={Tema}&country=br&from={LastHour}&lang=pt&max=100&apikey={API_KEY}"
 
@@ -37,33 +43,83 @@ def Montagem_dados(articles):
     return df_article
 
 
-df_articles = GET_Article(url)
-df_articles = Montagem_dados(df_articles)
-print(df_articles)
-
-
-
-def Conexao_DB():
-    connection = psycopg2.connect(
-        user="postgres",
-        password="p0stgres123",
-        host="127.0.0.1", 
-        port="5432",
-        database="postgres",
-        connect_timeout=5  
+def Conexao_DB(host_RDS, region, database, user, sslmode):
+    client = boto3.client('rds', region_name=region)
+    auth_token = client.generate_db_auth_token(
+        DBHostname=host_RDS,
+        Port=5432,
+        DBUsername = user,
+        Region=region
     )
 
-def Upload_DB(articles):
-    Conexao_DB()
-    for article in articles:
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            host = host_RDS,
+            port=5432,
+            database=database,
+            user=user,
+            password=auth_token,
+            sslmode=sslmode
+        )
+        return conn
+    except Exception as e:
+        print(f"Database error: {e}")
+        return None
 
-        print(f"Título: {article['title']}")
-        print(f"Descrição: {article.get('description', 'Sem descrição disponível')}")
-        print(f"Data: {datetime.fromisoformat(article['publishedAt'])}")
-        print(f"Fonte: {article['source']['name']} | url: {article['source']['url']}")
-        print("-" * 30)
-        #for article in articles:
-        #    print("--- Novas informações encontradas ---")
-        #    for chave, valor in article.items():
-        #        print(f"{chave}: {valor}")
-        #    break
+def Criar_Tabela(conn):
+    """Cria a tabela caso ela não exista no banco"""
+    try:
+        cur = conn.cursor()
+        # O comando IF NOT EXISTS evita erros se a tabela já existir
+        query_create = """
+        CREATE TABLE IF NOT EXISTS noticias (
+            ID SERIAL PRIMARY KEY,
+            Titulo TEXT,
+            Descricao TEXT,
+            Topico TEXT,
+            Data TIMESTAMP,
+            Fonte TEXT,
+            url TEXT
+        );
+        """
+        cur.execute(query_create)
+        conn.commit()
+        cur.close()
+        print("Verificação de tabela concluída (OK).")
+    except Exception as e:
+        print(f"Erro ao criar tabela: {e}")
+    
+def Upload_DB(articles, Tema):
+    conn = Conexao_DB(host_RDS, region, database, user, sslmode)
+    if not conn:
+        return
+    
+    Criar_Tabela(conn)
+    
+    try:
+        cur = conn.cursor()
+        
+        # Exemplo de query para suas notícias da GNews
+        query = "INSERT INTO noticias (Titulo, Descricao, Topico, Data, Fonte, url) VALUES (%s, %s, %s, %s, %s, %s)"
+        
+        for item in articles:
+            Completo = item[:2] + (Tema,) + item[2:]
+            cur.execute(query, Completo)
+        
+        conn.commit()
+        print(f"Sucesso! {len(articles)} registros enviados.")
+        
+        cur.close()
+    except Exception as e:
+        print(f"Erro durante o upload: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+# --- Execução ---
+if __name__ == "__main__":
+    artigos = GET_Article(url)
+    if artigos:
+        dados = Montagem_dados(artigos)
+        Upload_DB(dados, Tema)

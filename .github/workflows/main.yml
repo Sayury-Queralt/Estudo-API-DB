@@ -5,14 +5,31 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-and-run:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout do código
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Rodar Docker Compose
-        env:
-          # Aqui o GitHub injeta o Secret na memória da máquina que está rodando o job
-          API_GNews: ${{ secrets.API_GNEWS }}
-        run: docker-compose up --build -d
+      - name: SSH Deploy
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Entra na pasta exata que definimos no User Data
+            cd /home/ec2-user/API-GNews
+            
+            # Se a pasta estiver vazia (primeira vez), clona. Se não, dá pull.
+            if [ -d ".git" ]; then
+              git pull origin main
+            else
+              git clone https://github.com/Sayury-Queralt/Estudo-API-DB.git .
+            fi
+
+            # Injeta o Secret no .env dentro da pasta correta
+            echo "API_GNews=${{ secrets.API_GNEWS }}" > .env
+            
+            # Sobe o container
+            docker compose up --build -d
