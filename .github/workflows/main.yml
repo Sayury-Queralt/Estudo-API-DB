@@ -1,0 +1,18 @@
+name: Deploy Coletor API
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Rodar Docker Compose
+        env:
+          # Aqui o GitHub injeta o Secret na memória da máquina que está rodando o job
+          API_GNews: ${{ secrets.API_GNEWS }}
+        run: docker-compose up --build -d
